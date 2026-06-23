@@ -23,28 +23,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # Repositorio analítico destino del pipeline
-  postgres_analytics:
-    image: postgres:16
-    container_name: postgres_analytics
-
-    environment:
-      POSTGRES_DB: ${ANALYTICS_DB}
-      POSTGRES_USER: ${ANALYTICS_USER}
-      POSTGRES_PASSWORD: ${ANALYTICS_PASSWORD}
-
-    ports:
-      - "5433:5432"
-
-    volumes:
-      - postgres_analytics_data:/var/lib/postgresql/data
-
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${ANALYTICS_USER}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   # Inicializa Airflow:
   # - Ejecuta migraciones
   # - Crea el usuario administrador
@@ -63,11 +41,13 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_USER}:${AIRFLOW_PASSWORD}@postgres_airflow:5432/${AIRFLOW_DB}
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
 
     command: >
       bash -c "
-      airflow db migrate
-      "
+        airflow db migrate &&
+        airflow users create --username ${AIRFLOW_ADMIN_USER} --password ${AIRFLOW_ADMIN_PASSWORD} --firstname ${AIRFLOW_ADMIN_FIRSTNAME} --lastname ${AIRFLOW_ADMIN_LASTNAME} --role Admin --email ${AIRFLOW_ADMIN_EMAIL} || true && airflow connections add analytics_db --conn-type postgres --conn-host ${SUPABASE_HOST} --conn-login ${SUPABASE_USER} --conn-password ${SUPABASE_PASSWORD} --conn-schema ${SUPABASE_DB} --conn-port ${SUPABASE_PORT} || true
+        "
 
   # Airflow IU
   airflow-webserver:
@@ -85,6 +65,7 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_USER}:${AIRFLOW_PASSWORD}@postgres_airflow:5432/${AIRFLOW_DB}
       AIRFLOE__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
 
     command: api-server
 
@@ -112,6 +93,7 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_USER}:${AIRFLOW_PASSWORD}@postgres_airflow:5432/${AIRFLOW_DB}
       AIRFLOW__DATABASE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
 
     command: scheduler
 
@@ -124,4 +106,3 @@ services:
 # Volúmenes persistentes para las bases de datos
 volumes:
   postgres_airflow_data:
-  postgres_analytics_data:

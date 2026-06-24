@@ -1,5 +1,10 @@
 pandas
+numpy
 sqlalchemy
 psycopg2-binary
-numpy
+
+apache-airflow-providers-postgres
 apache-airflow-providers-fab
+
+openpyxl
+pyarrow

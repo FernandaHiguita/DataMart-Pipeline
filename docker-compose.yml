@@ -1,0 +1,108 @@
+services:
+
+  # Base de datos utilizada por Airflow para almacenar
+  # metadata: DAGs, logs, variables, conexiones, usuarios, etc.
+  postgres_airflow:
+    image: postgres:16
+    container_name: postgres_airflow
+
+    environment:
+      POSTGRES_DB: ${AIRFLOW_DB}
+      POSTGRES_USER: ${AIRFLOW_USER}
+      POSTGRES_PASSWORD: ${AIRFLOW_PASSWORD}
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - postgres_airflow_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${AIRFLOW_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Inicializa Airflow:
+  # - Ejecuta migraciones
+  # - Crea el usuario administrador
+  airflow-init:
+    image: datamart-airflow
+    container_name: airflow-init
+
+    depends_on:
+      postgres_airflow:
+        condition: service_healthy
+
+    env_file:
+      - .env
+
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_USER}:${AIRFLOW_PASSWORD}@postgres_airflow:5432/${AIRFLOW_DB}
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
+
+    command: >
+      bash -c "
+        airflow db migrate &&
+        airflow users create --username ${AIRFLOW_ADMIN_USER} --password ${AIRFLOW_ADMIN_PASSWORD} --firstname ${AIRFLOW_ADMIN_FIRSTNAME} --lastname ${AIRFLOW_ADMIN_LASTNAME} --role Admin --email ${AIRFLOW_ADMIN_EMAIL} || true && airflow connections add analytics_db --conn-type postgres --conn-host ${SUPABASE_HOST} --conn-login ${SUPABASE_USER} --conn-password ${SUPABASE_PASSWORD} --conn-schema ${SUPABASE_DB} --conn-port ${SUPABASE_PORT} || true
+        "
+
+  # Airflow IU
+  airflow-webserver:
+    image: datamart-airflow
+    container_name: airflow-webserver
+
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+    env_file:
+      - .env
+
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_USER}:${AIRFLOW_PASSWORD}@postgres_airflow:5432/${AIRFLOW_DB}
+      AIRFLOE__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
+
+    command: api-server
+
+    ports:
+      - "8080:8080"
+
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+
+  # Executer DAGs 
+  airflow-scheduler:
+    image: datamart-airflow
+    container_name: airflow-scheduler
+
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+    env_file:
+      - .env
+
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_USER}:${AIRFLOW_PASSWORD}@postgres_airflow:5432/${AIRFLOW_DB}
+      AIRFLOW__DATABASE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
+
+    command: scheduler
+
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+
+
+# Volúmenes persistentes para las bases de datos
+volumes:
+  postgres_airflow_data:
